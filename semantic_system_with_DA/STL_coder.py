@@ -25,6 +25,7 @@ import torchvision.datasets as datasets
 import time
 import warnings
 import cv2
+import tqdm
 
 warnings.filterwarnings("ignore")
 
@@ -316,6 +317,7 @@ for lambda_var in range(1):
                 aver_noise = aver / 10 ** (snr / 10)
                 noise = torch.randn(size=out.shape) * np.sqrt(aver_noise)
                 noise = noise.to(device)
+                out = out.to(device)
 
                 out = out + noise
                 out = self.tconv4(out)
@@ -372,9 +374,9 @@ for lambda_var in range(1):
         # test_set = datasets.SVHN('./data', transform=transform, download=True)
         # test_data = torch.utils.data.DataLoader(test_set, batch_size=64, shuffle=False)
 
-        train_set = datasets.STL10('./data', transform=data_tf, download=True)
+        train_set = datasets.STL10('./data/stl', transform=data_tf, download=True)
         train_data = torch.utils.data.DataLoader(train_set, batch_size=64, shuffle=True)
-        test_set = datasets.STL10('./data', transform=data_tf, download=True)
+        test_set = datasets.STL10('./data/stl', transform=data_tf, download=True)
         test_data = torch.utils.data.DataLoader(test_set, batch_size=64, shuffle=False)
 
         losses = []
@@ -387,10 +389,12 @@ for lambda_var in range(1):
 
         print('Training Start')
         print('Compression Rate:', compression_rate)
-        epoch_len = 400
+        epoch_len = 100
         out = None
         # print('ini time:', time.process_time())
-        for e in range(epoch_len):
+        print(f"Start training {epoch_len} epochs")
+        train_epochs = tqdm.tqdm(range(epoch_len))
+        for e in train_epochs:
             train_loss = 0
             train_acc = 0
             psnr_aver = 0
@@ -434,6 +438,30 @@ for lambda_var in range(1):
                 counter += 1
                 if counter >= 32:
                     break
+                # save the images
+                if (e+1) % 10 == 0 and counter == 1:
+                    im_data = to_data(im)
+                    out_data = to_data(out)
+                    merged = merge_images(im_data, out_data)
+
+                    im_data = imageio.core.image_as_uint(im_data)
+                    out_data = imageio.core.image_as_uint(out_data)
+                    merged = imageio.core.image_as_uint(merged)
+
+                    path = os.path.join('images/stl/sample/sample-epoch-%d-lambda-%.2f-compre-%.2f.png' % (
+                        e+1, lambda1, compression_rate))
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
+
+                    path = os.path.join('images/stl/im/im-epoch-%d-lambda-%.2f-compre-%.2f.png' % (
+                        e+1, lambda1, compression_rate))
+                    imageio.imwrite(path, im_data[0].transpose(1, 2, 0))
+                    print('saved %s' % path)
+                    
+                    path = os.path.join('images/stl/out/out-epoch-%d-lambda-%.2f-compre-%.2f.png' % (
+                        e+1, lambda1, compression_rate))
+                    imageio.imwrite(path, out_data[0].transpose(1, 2, 0))
+                    print('saved %s' % path)
 
             losses.append(train_loss / counter)
             acces.append(train_acc / counter)
@@ -482,9 +510,10 @@ for lambda_var in range(1):
 
             eval_losses.append(eval_loss / counter)
             eval_acces.append(eval_acc / counter)
-            print('epoch: {}, Train Loss: {:.6f}, Train Acc: {:.6f}, Eval Loss: {:.6f}, Eval Acc: {:.6f}, PSNR: {:.6f}'
-                  .format(e, train_loss / counter, train_acc / counter,
-                          eval_loss / counter, eval_acc / counter, psnr_aver / counter))
+            if (e+1) % 10 == 0:
+                print('epoch: {}, Train Loss: {:.6f}, Train Acc: {:.6f}, Eval Loss: {:.6f}, Eval Acc: {:.6f}, PSNR: {:.6f}'
+                    .format(e, train_loss / counter, train_acc / counter,
+                            eval_loss / counter, eval_acc / counter, psnr_aver / counter))
             # print('*' * 30)
 
             # if e % 10 == 0:
@@ -493,27 +522,32 @@ for lambda_var in range(1):
             #     torch.save(mlp_encoder.state_dict(),
             #                'mlp_encoder_cifar-lambda-%.2f-compre-%.2f.pkl' % (lambda1, compression_rate))
 
-        # torch.save(mlp_encoder.state_dict(), ('MLP_MNIST_encoder_combining_%f.pkl' % compression_rate))
+        torch.save(mlp_encoder.state_dict(), ('models/stl/MLP_STL_encoder_combining_%f.pkl' % compression_rate))
 
-        file = ('./STL/MLP_sem_STL/loss_semantic_combining_%.2f_lambda_%.2f.csv' % (
+        file = ('./results/stl/MLP_sem_STL/loss_semantic_combining_%.2f_lambda_%.2f.csv' % (
             compression_rate, lambda1))
         data = pd.DataFrame(eval_losses)
         data.to_csv(file, index=False)
 
-        file = ('./STL/MLP_sem_STL/acc_semantic_combining_%.2f_lambda_%.2f.csv' % (
+        file = ('./results/stl/MLP_sem_STL/acc_semantic_combining_%.2f_lambda_%.2f.csv' % (
             compression_rate, lambda1))
         data = pd.DataFrame(eval_acces)
         data.to_csv(file, index=False)
 
-        # eval_psnr = np.array(psnr_all)
-        # file = ('./SVHN/MLP_sem_SVHN/psnr_semantic_combining_%.2f_lambda_%.2f.csv' % (
-        #     compression_rate, lambda1))
-        # data = pd.DataFrame(eval_psnr)
-        # data.to_csv(file, index=False)
+        eval_psnr = np.array(psnr_all)
+        file = ('./results/stl/MLP_sem_STL/psnr_semantic_combining_%.2f_lambda_%.2f.csv' % (
+            compression_rate, lambda1))
+        data = pd.DataFrame(eval_psnr)
+        data.to_csv(file, index=False)
 
-        # for ii in range(len(out)):
-        #     # image_recover = data_inv_transform(out[ii])
-        #     pil_img = Image.fromarray(np.uint8(out))
-        #     pil_img.save(
-        #         "/SVHN/image_recover_combing/mnist_train_%d_%f_lambda_%f.jpg" % (ii, compression_rate, lambda1))
+        for ii in range(len(out)):
+            if ii > 15: break
+            # print(len(out))  # 64
+            # image_recover = data_inv_transform(out[ii])
+            out_data = to_data(out)
+            out_data = imageio.core.image_as_uint(out_data)
+            pil_img = Image.fromarray(out_data[ii].transpose(1, 2, 0))
+            # pil_img = Image.fromarray(image_recover)
+            pil_img.save(
+                "image_recover/stl/stl_train_%d_%f_lambda_%f.jpg" % (ii, compression_rate, lambda1))
 

@@ -142,9 +142,9 @@ def data_tf(x):
     return x
 
 
-train_set = CIFAR10('./data', train=True, transform=data_tf, download=True)
+train_set = CIFAR10('./data/cifar', train=True, transform=data_tf, download=True)
 train_data = torch.utils.data.DataLoader(train_set, batch_size=64, shuffle=True)
-test_set = CIFAR10('./data', train=False, transform=data_tf, download=True)
+test_set = CIFAR10('./data/cifar', train=False, transform=data_tf, download=True)
 test_data = torch.utils.data.DataLoader(test_set, batch_size=128, shuffle=False)
 
 net = googlenet(3, 10)
@@ -217,7 +217,7 @@ def train(net, train_data, valid_data, num_epochs, optimizer, criterion):
 
         prev_time = cur_time
         print(epoch_str + time_str)
-        # torch.save(net.state_dict(), 'google_net.pkl')
+        torch.save(net.state_dict(), 'models/google_net.pkl')
 
 
 train(net, train_data, test_data, 20, optimizer, criterion)

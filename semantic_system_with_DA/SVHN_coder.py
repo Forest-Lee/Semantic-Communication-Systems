@@ -25,6 +25,7 @@ import torchvision.datasets as datasets
 import time
 import warnings
 import cv2
+import tqdm
 
 warnings.filterwarnings("ignore")
 
@@ -270,7 +271,7 @@ for lambda_var in range(1):
             def __init__(self, out_ch=16):
                 super(coding, self).__init__()
                 # channel = 2
-                self.conv1 = nn.Conv2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
+                self.conv1 = nn.Conv2d(3, out_ch, kernel_size=channel, stride=1, padding=0)
 
                 self.conv2 = nn.Conv2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
                 self.conv3 = nn.Conv2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
@@ -285,7 +286,7 @@ for lambda_var in range(1):
                 self.tconv2 = nn.ConvTranspose2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
                 self.tconv3 = nn.ConvTranspose2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
                 self.tconv4 = nn.ConvTranspose2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
-                self.tconv5 = nn.ConvTranspose2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
+                self.tconv5 = nn.ConvTranspose2d(out_ch, 3, kernel_size=channel, stride=1, padding=0)
                 self.tconv_fixed1 = nn.ConvTranspose2d(out_ch, out_ch, kernel_size=6, stride=1, padding=0)
                 self.tconv_fixed2 = nn.ConvTranspose2d(out_ch, out_ch, kernel_size=6, stride=1, padding=0)
                 self.tconv_fixed3 = nn.ConvTranspose2d(out_ch, out_ch, kernel_size=6, stride=1, padding=0)
@@ -299,13 +300,14 @@ for lambda_var in range(1):
 
             def forward(self, x):
                 # encoder
-                out = self.pool(x)   # 48*48
-                out = self.conv_fixed1(out)  # 43*43
-                out = self.conv_fixed2(out)  # 38*38
-                out = self.conv_fixed3(out)  # 33*33
-                out = self.conv_fixed4(out)  # 28*28
-                out = self.conv1(out)
-                out = self.conv2(out)
+                out = self.pool(x)   # 48*48  [64, 3, 48, 48]
+                # out = x
+                # out = self.conv_fixed1(out)  # 43*43  [64, 16, 43, 43]
+                # out = self.conv_fixed2(out)  # 38*38
+                # out = self.conv_fixed3(out)  # 33*33
+                # out = self.conv_fixed4(out)  # 28*28
+                out = self.conv1(out)  # 26*26  [64, 16, 26, 26]
+                out = self.conv2(out)  # 24*24
                 # out = self.conv3(out)
 
                 # scale and quantize
@@ -330,16 +332,74 @@ for lambda_var in range(1):
                 aver_noise = aver / 10 ** (snr / 10)
                 noise = torch.randn(size=out.shape) * np.sqrt(aver_noise)
                 noise = noise.to(device)
+                out = out.to(device)
 
-                out = out + noise
-                out = self.tconv4(out)
-                out = self.tconv5(out)
-                out = self.tconv_fixed1(out)
-                out = self.tconv_fixed2(out)
-                out = self.tconv_fixed3(out)
-                out = self.tconv_fixed4(out)
-                out = self.unpool(out)
+                out = out + noise  # 24*24
+                out = self.tconv4(out)  # 26*26
+                out = self.tconv5(out)  # 28*28
+                # out = self.tconv_fixed1(out)  # 33*33
+                # out = self.tconv_fixed2(out)  # 38*38
+                # out = self.tconv_fixed3(out)  # 43*43
+                # out = self.tconv_fixed4(out)  # 48*48  [64, 3, 48, 48]
+                out = self.unpool(out)  # 96*96 [64, 3, 96, 96]
                 return out
+
+        # class coding(nn.Module):
+        #     def __init__(self, out_ch=16):
+        #         super(coding, self).__init__()
+        #         # channel = 2
+        #         self.conv1 = nn.Conv2d(3, out_ch, kernel_size=channel, stride=1, padding=0)
+
+        #         self.conv2 = nn.Conv2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
+        #         self.conv3 = nn.Conv2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
+        #         self.conv4 = nn.Conv2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
+        #         self.conv5 = nn.Conv2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
+
+        #         self.tconv1 = nn.ConvTranspose2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
+        #         self.unpool = nn.MaxUnpool2d(2, stride=2)
+        #         self.tconv2 = nn.ConvTranspose2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
+        #         self.tconv3 = nn.ConvTranspose2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
+        #         self.tconv4 = nn.ConvTranspose2d(out_ch, out_ch, kernel_size=channel, stride=1, padding=0)
+        #         self.tconv5 = nn.ConvTranspose2d(out_ch, 3, kernel_size=channel, stride=1, padding=0)
+
+        #         # self.relu = nn.ReLU()
+
+        #     def forward(self, x):
+        #         # encoder
+        #         out = self.conv1(x)  # 94*94
+        #         out = self.conv2(out)  # 92*92
+        #         # out = self.conv3(out)
+
+
+        #         # scale and quantize
+        #         out = out.detach().cpu()
+        #         out_max = torch.max(out)
+        #         out_tmp = copy.deepcopy(torch.div(out, out_max))
+
+        #         # quantize
+        #         out_tmp = copy.deepcopy(torch.mul(out_tmp, 256))
+        #         out_tmp = copy.deepcopy(out_tmp.clone().type(torch.int))
+        #         out_tmp = copy.deepcopy(out_tmp.clone().type(torch.float32))
+        #         out_tmp = copy.deepcopy(torch.div(out_tmp, 256))
+
+        #         out = copy.deepcopy(torch.mul(out_tmp, out_max))
+
+        #         out_tmp = out.detach().cpu().numpy()
+        #         out_square = np.square(out_tmp)
+        #         aver = np.sum(out_square) / np.size(out_square)
+
+        #         # snr = 3  # dB
+        #         snr = 10  # dB
+        #         aver_noise = aver / 10 ** (snr / 10)
+        #         noise = torch.randn(size=out.shape) * np.sqrt(aver_noise)
+        #         noise = noise.to(device)
+        #         out = out.to(device)
+
+        #         out = out + noise  # 92*92
+        #         out = self.tconv4(out)  # 94*94
+        #         out = self.tconv5(out)  # 96*96  [64, 3, 96, 96]
+
+        #         return out
 
 
         # classifier = classifier_svhn().to(device)
@@ -387,9 +447,9 @@ for lambda_var in range(1):
         # test_set = datasets.SVHN('./data', transform=transform, download=True)
         # test_data = torch.utils.data.DataLoader(test_set, batch_size=64, shuffle=False)
 
-        train_set = datasets.SVHN('./data', transform=data_tf, download=True)
+        train_set = datasets.SVHN('./data/svhn', transform=data_tf, download=True)
         train_data = torch.utils.data.DataLoader(train_set, batch_size=64, shuffle=True)
-        test_set = datasets.SVHN('./data', transform=data_tf, download=True)
+        test_set = datasets.SVHN('./data/svhn', transform=data_tf, download=True)
         test_data = torch.utils.data.DataLoader(test_set, batch_size=64, shuffle=False)
 
         losses = []
@@ -402,10 +462,13 @@ for lambda_var in range(1):
 
         print('Training Start')
         print('Compression Rate:', compression_rate)
-        epoch_len = 400
+        epoch_len = 200
         out = None
         # print('ini time:', time.process_time())
-        for e in range(epoch_len):
+        print(f"Start training {epoch_len} epochs")
+        train_epochs = tqdm.tqdm(range(epoch_len))
+        for e in train_epochs:
+            # if e > 50: break  # for debugging
             train_loss = 0
             train_acc = 0
             psnr_aver = 0
@@ -413,6 +476,7 @@ for lambda_var in range(1):
             # print('prepare time:', time.process_time())
             counter = 0
             for im, label in train_data:
+                # print(len(train_data))  # 73257 / 64 = 1145
                 im = Variable(im)
                 label = Variable(label)
 
@@ -422,7 +486,9 @@ for lambda_var in range(1):
 
                 out = mlp_encoder(im)
                 # print('shape of out:', out.size())
+                # print(im.size(), out.size())  # both [64, 3, 96, 96]
                 out_svhn = classifier(out)
+                # print(out_svhn.size())  # [64, 10]
 
                 # import pdb
                 # pdb.set_trace()
@@ -449,6 +515,30 @@ for lambda_var in range(1):
                 counter += 1
                 if counter >= 32:
                     break
+                # save the images
+                if (e+1) % 50 == 0 and counter == 1:
+                    im_data = to_data(im)
+                    out_data = to_data(out)
+                    merged = merge_images(im_data, out_data)
+
+                    im_data = imageio.core.image_as_uint(im_data)
+                    out_data = imageio.core.image_as_uint(out_data)
+                    merged = imageio.core.image_as_uint(merged)
+
+                    path = os.path.join('images/svhn/sample/sample-epoch-%d-lambda-%.2f-compre-%.2f.png' % (
+                        e+1, lambda1, compression_rate))
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
+
+                    path = os.path.join('images/svhn/im/im-epoch-%d-lambda-%.2f-compre-%.2f.png' % (
+                        e+1, lambda1, compression_rate))
+                    imageio.imwrite(path, im_data[0].transpose(1, 2, 0))
+                    print('saved %s' % path)
+                    
+                    path = os.path.join('images/svhn/out/out-epoch-%d-lambda-%.2f-compre-%.2f.png' % (
+                        e+1, lambda1, compression_rate))
+                    imageio.imwrite(path, out_data[0].transpose(1, 2, 0))
+                    print('saved %s' % path)
 
             losses.append(train_loss / counter)
             acces.append(train_acc / counter)
@@ -498,9 +588,10 @@ for lambda_var in range(1):
 
             eval_losses.append(eval_loss / counter)
             eval_acces.append(eval_acc / counter)
-            print('epoch: {}, Train Loss: {:.6f}, Train Acc: {:.6f}, Eval Loss: {:.6f}, Eval Acc: {:.6f}, PSNR: {:.6f}'
-                  .format(e, train_loss / counter, train_acc / counter,
-                          eval_loss / counter, eval_acc / counter, psnr_aver / counter))
+            if (e+1) % 10 == 0:
+                print('epoch: {}, Train Loss: {:.6f}, Train Acc: {:.6f}, Eval Loss: {:.6f}, Eval Acc: {:.6f}, PSNR: {:.6f}'
+                    .format(e+1, train_loss / counter, train_acc / counter,
+                            eval_loss / counter, eval_acc / counter, psnr_aver / counter))
             # print('*' * 30)
 
             # if e % 10 == 0:
@@ -509,26 +600,31 @@ for lambda_var in range(1):
             #     torch.save(mlp_encoder.state_dict(),
             #                'mlp_encoder_cifar-lambda-%.2f-compre-%.2f.pkl' % (lambda1, compression_rate))
 
-        # torch.save(mlp_encoder.state_dict(), ('MLP_MNIST_encoder_combining_%f.pkl' % compression_rate))
+        torch.save(mlp_encoder.state_dict(), ('models/svhn/MLP_SVHN_encoder_combining_%f.pkl' % compression_rate))
 
-        file = ('./SVHN/MLP_sem_SVHN/loss_semantic_combining_%.2f_lambda_%.2f.csv' % (
+        file = ('./results/svhn/MLP_sem_SVHN/loss_semantic_combining_%.2f_lambda_%.2f.csv' % (
             compression_rate, lambda1))
         data = pd.DataFrame(eval_losses)
         data.to_csv(file, index=False)
 
-        file = ('./SVHN/MLP_sem_SVHN/acc_semantic_combining_%.2f_lambda_%.2f.csv' % (
+        file = ('./results/svhn/MLP_sem_SVHN/acc_semantic_combining_%.2f_lambda_%.2f.csv' % (
             compression_rate, lambda1))
         data = pd.DataFrame(eval_acces)
         data.to_csv(file, index=False)
 
-        # eval_psnr = np.array(psnr_all)
-        # file = ('./SVHN/MLP_sem_SVHN/psnr_semantic_combining_%.2f_lambda_%.2f.csv' % (
-        #     compression_rate, lambda1))
-        # data = pd.DataFrame(eval_psnr)
-        # data.to_csv(file, index=False)
+        eval_psnr = np.array(psnr_all)
+        file = ('./results/svhn/MLP_sem_SVHN/psnr_semantic_combining_%.2f_lambda_%.2f.csv' % (
+            compression_rate, lambda1))
+        data = pd.DataFrame(eval_psnr)
+        data.to_csv(file, index=False)
 
-        # for ii in range(len(out)):
-        #     # image_recover = data_inv_transform(out[ii])
-        #     pil_img = Image.fromarray(np.uint8(out))
-        #     pil_img.save(
-        #         "/SVHN/image_recover_combing/mnist_train_%d_%f_lambda_%f.jpg" % (ii, compression_rate, lambda1))
+        for ii in range(len(out)):
+            if ii > 15: break
+            # print(len(out))  # 64
+            # image_recover = data_inv_transform(out[ii])
+            out_data = to_data(out)
+            out_data = imageio.core.image_as_uint(out_data)
+            pil_img = Image.fromarray(out_data[ii].transpose(1, 2, 0))
+            # pil_img = Image.fromarray(image_recover)
+            pil_img.save(
+                "image_recover/svhn/svhn_train_%d_%f_lambda_%f.jpg" % (ii, compression_rate, lambda1))

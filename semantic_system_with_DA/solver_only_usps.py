@@ -20,6 +20,8 @@ import scipy.misc
 import imageio
 import torch.nn.functional as F
 import pandas as pd
+import copy
+import tqdm
 
 
 class MLP_MNIST(nn.Module):
@@ -118,8 +120,9 @@ class Solver(object):
 
         acc_all_np = []
         acc_all_all = []
-        for iii in range(9):
+        for iii in range(10):
             compression_rate = (iii + 1) * 0.1
+            print('-' * 30)
             print('compression rate:', compression_rate)
 
             class MLP(nn.Module):
@@ -188,9 +191,9 @@ class Solver(object):
             mlp_encoder = mlp_encoder.to(device)
             mlp_mnist = mlp_mnist.to(device)
 
-            mlp_encoder.load_state_dict(torch.load('MLP_MNIST'
+            mlp_encoder.load_state_dict(torch.load('models/mnist/MLP_MNIST'
                                                    '_encoder_combining_%.6f.pkl' % compression_rate))
-            mlp_mnist.load_state_dict(torch.load('MLP_MNIST.pkl'))
+            mlp_mnist.load_state_dict(torch.load('models/MLP_MNIST.pkl'))
 
             svhn_iter = iter(self.svhn_loader)
             mnist_iter = iter(self.mnist_loader)
@@ -203,7 +206,7 @@ class Solver(object):
             criterion = nn.CrossEntropyLoss()
             # criterion = nn.BCELoss()
 
-            for step in range(self.train_iters + 1):
+            for step in tqdm.tqdm(range(self.train_iters)):
                 if flag == 1:
                     flag = 0
                     break
@@ -253,12 +256,50 @@ class Solver(object):
                           % (step + 1, self.train_iters, acc))
 
                 if (step + 1) % (self.log_step * 10) == 0:
+                    # save images
+                    fake_svhn = fixed_svhn
+                    fake_mnist = fixed_mnist
+
+                    fake_mnist_reshape = fake_mnist.view(64, -1)
+                    fake_mnist_reshape = fake_mnist_reshape.to(device)
+                    out_encoder = mlp_encoder(fake_mnist_reshape)
+                    out_encoder_reshape = torch.reshape(out_encoder, (64, 1, 28, 28))
+                    mnist, fake_mnist = self.to_data(fixed_mnist), self.to_data(fake_mnist)
+                    svhn, fake_svhn = self.to_data(fixed_svhn), self.to_data(fake_svhn)
+                    out_encoder_reshape_data = self.to_data(out_encoder_reshape)
+                    # mnist to usps
+                    merged = self.merge_images(mnist, fake_svhn)
+                    merged = imageio.core.image_as_uint(merged)
+                    path = os.path.join(self.sample_path, 'usps/woda/sample-%d-m-s.png' % (step + 1))
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
+                    # usps to mnist
+                    merged = self.merge_images(svhn, fake_mnist)
+                    merged = imageio.core.image_as_uint(merged)
+                    path = os.path.join(self.sample_path, 'usps/woda/sample-%d-s-m.png' % (step + 1))
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
+                    # all
+                    merged = self.merge_images_encoder(svhn, fake_mnist, out_encoder_reshape_data)
+                    merged = imageio.core.image_as_uint(merged)
+                    path = os.path.join(self.sample_path, 'usps/woda/sample-%d-s-m-encoder.png' % (step + 1))
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
+
                     # acc_all_np.append(np.array(self.train_acc))
                     # acc_all_np = np.array(acc_all_np)
                     acc_all_all.append(self.train_acc)
-                    if compression_rate > 0.8:
+                    # if compression_rate > 0.9:
+                    #     acc_all_all = np.array(acc_all_all)
+                    #     file = './results/usps/acc.csv'
+                    #     data = pd.DataFrame(acc_all_all)
+                    #     data.to_csv(file, index=False)
+                    # break
+                
+                if (step + 1) % 15000 == 0:
+                    if compression_rate > 0.9:
                         acc_all_all = np.array(acc_all_all)
-                        file = './results/acc.csv'
+                        file = './results/usps/acc.csv'
                         data = pd.DataFrame(acc_all_all)
                         data.to_csv(file, index=False)
                     break

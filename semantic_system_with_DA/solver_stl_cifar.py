@@ -21,6 +21,8 @@ from model_stl_cifar import D1, D2
 import scipy.misc
 import imageio
 import pandas as pd
+import copy
+import tqdm
 
 
 def data_tf(x):
@@ -295,11 +297,13 @@ class Solver(object):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print("Device: %s" % device)
 
-        for iii in range(2):
+        for iii in range(10):
             acc_all_np = []
-            compression_rate = (iii + 8) * 0.1
+            compression_rate = (iii + 1) * 0.1
+            # compression_rate = (iii + 8) * 0.1
             channel = max(np.sqrt(32 * (1 - compression_rate) / 2), 1)
             channel = int(channel)
+            print('-' * 30)
             print('compression rate:', compression_rate)
             flag = 0
 
@@ -334,10 +338,12 @@ class Solver(object):
 
                     out = out.detach().cpu()
                     out_max = torch.max(out)
-                    out_tmp = copy.deepcopy(torch.mul(out, out_max))
+                    out_tmp = copy.deepcopy(torch.div(out, out_max))
+                    out_tmp = copy.deepcopy(torch.mul(out_tmp, 256))
                     out_tmp = copy.deepcopy(out_tmp.clone().type(torch.int))
                     out_tmp = copy.deepcopy(out_tmp.clone().type(torch.float32))
-                    out = copy.deepcopy(torch.div(out_tmp, out_max))
+                    out_tmp = copy.deepcopy(torch.div(out_tmp, 256))
+                    out = copy.deepcopy(torch.mul(out_tmp, out_max))
 
                     out_tmp = out.detach().cpu().numpy()
                     out_square = np.square(out_tmp)
@@ -347,6 +353,7 @@ class Solver(object):
                     aver_noise = aver / 10 ** (snr / 10)
                     noise = torch.randn(size=out.shape) * np.sqrt(aver_noise)
                     noise = noise.to(device)
+                    out = out.to(device)
 
                     out = out + noise
                     # out = torch.from_numpy(out)
@@ -367,10 +374,10 @@ class Solver(object):
                     return out
 
             mlp_encoder = RED_CNN()
-            mlp_encoder.load_state_dict(torch.load('mlp_encoder_cifar-lambda-0.80-compre-%.2f.pkl' % compression_rate))
+            mlp_encoder.load_state_dict(torch.load('models/cifar/mlp_cifar_encoder-lambda-%.2f-compre-%.2f.pkl' % (1-compression_rate, compression_rate)))
             mlp_encoder = mlp_encoder.to(device)
             classifier = googlenet(3, 10)
-            classifier.load_state_dict(torch.load('google_net.pkl'))
+            classifier.load_state_dict(torch.load('models/google_net.pkl'))
             classifier.to(device)
 
             # print('type:', type(self.cifar_loader))
@@ -388,7 +395,7 @@ class Solver(object):
             criterion = nn.CrossEntropyLoss()
             # criterion = nn.BCELoss()
 
-            for step in range(self.train_iters + 1):
+            for step in tqdm.tqdm(range(self.train_iters)):
                 # reset data_iter for each epoch
                 if (step + 1) % iter_per_epoch == 0:
                     cifar_iter = iter(self.cifar_loader)
@@ -514,48 +521,48 @@ class Solver(object):
                 if (step + 1) % self.sample_step == 0:
                     # 保存图，需要的时候再打开
 
-                    # fake_stl = self.g12(fixed_cifar)
-                    # fake_cifar = self.g21(fixed_stl)
-                    #
-                    # out_encoder = mlp_encoder(fake_cifar)
-                    #
-                    # cifar, fake_cifar = self.to_data(fixed_cifar), self.to_data(fake_cifar)
-                    # stl, fake_stl = self.to_data(fixed_stl), self.to_data(fake_stl)
-                    #
-                    # out_encoder = self.to_data(out_encoder)
-                    #
-                    # merged = self.merge_images(cifar, fake_stl)
-                    # path = os.path.join(self.sample_path, 'sample-%d-m-s.png' % (step + 1))
-                    # # scipy.misc.imsave(path, merged)
-                    # imageio.imwrite(path, merged)
-                    # print('saved %s' % path)
-                    #
-                    # merged = self.merge_images(stl, fake_cifar)
-                    # path = os.path.join(self.sample_path, 'sample-%d-s-m.png' % (step + 1))
-                    # # scipy.misc.imsave(path, merged)
-                    # imageio.imwrite(path, merged)
-                    # print('saved %s' % path)
-                    #
-                    # merged = self.merge_images_encoder(stl, fake_cifar, out_encoder)
-                    # path = os.path.join(self.sample_path, 'sample-%d-s-m-encoder.png' % (step + 1))
-                    # # scipy.misc.imsave(path, merged)
-                    # imageio.imwrite(path, merged)
-                    # print('saved %s' % path)
+                    fake_stl = self.g12(fixed_cifar)
+                    fake_cifar = self.g21(fixed_stl)
+                    
+                    out_encoder = mlp_encoder(fake_cifar)
+                    
+                    cifar, fake_cifar = self.to_data(fixed_cifar), self.to_data(fake_cifar)
+                    stl, fake_stl = self.to_data(fixed_stl), self.to_data(fake_stl)
+                    
+                    out_encoder = self.to_data(out_encoder)
+                    
+                    merged = self.merge_images(cifar, fake_stl)
+                    path = os.path.join(self.sample_path, 'stl/wda/sample-%d-m-s.png' % (step + 1))
+                    # scipy.misc.imsave(path, merged)
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
+                    
+                    merged = self.merge_images(stl, fake_cifar)
+                    path = os.path.join(self.sample_path, 'stl/wda/sample-%d-s-m.png' % (step + 1))
+                    # scipy.misc.imsave(path, merged)
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
+                    
+                    merged = self.merge_images_encoder(stl, fake_cifar, out_encoder)
+                    path = os.path.join(self.sample_path, 'stl/wda/sample-%d-s-m-encoder.png' % (step + 1))
+                    # scipy.misc.imsave(path, merged)
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
 
                     acc_all_np = np.array(self.train_acc)
-                    file = ('./results/acc_stl_cifar_%.2f.csv' % compression_rate)
+                    file = ('./results/stl/acc_stl_cifar_%.2f.csv' % compression_rate)
                     data = pd.DataFrame(acc_all_np)
                     data.to_csv(file, index=False)
 
                 if (step + 1) % 15000 == 0:
                     # save the model parameters for each epoch
-                    # g12_path = os.path.join(self.model_path, 'g12-%d.pkl' % (step + 1))
-                    # g21_path = os.path.join(self.model_path, 'g21-%d.pkl' % (step + 1))
-                    # d1_path = os.path.join(self.model_path, 'd1-%d.pkl' % (step + 1))
-                    # d2_path = os.path.join(self.model_path, 'd2-%d.pkl' % (step + 1))
-                    # torch.save(self.g12.state_dict(), g12_path)
-                    # torch.save(self.g21.state_dict(), g21_path)
-                    # torch.save(self.d1.state_dict(), d1_path)
-                    # torch.save(self.d2.state_dict(), d2_path)
+                    g12_path = os.path.join(self.model_path, 'stl/g12-%d.pkl' % (step + 1))
+                    g21_path = os.path.join(self.model_path, 'stl/g21-%d.pkl' % (step + 1))
+                    d1_path = os.path.join(self.model_path, 'stl/d1-%d.pkl' % (step + 1))
+                    d2_path = os.path.join(self.model_path, 'stl/d2-%d.pkl' % (step + 1))
+                    torch.save(self.g12.state_dict(), g12_path)
+                    torch.save(self.g21.state_dict(), g21_path)
+                    torch.save(self.d1.state_dict(), d1_path)
+                    torch.save(self.d2.state_dict(), d2_path)
                     break  # 跳出这次循环，开始下一个压缩率下的处理
 

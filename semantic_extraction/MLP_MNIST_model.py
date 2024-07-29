@@ -27,8 +27,8 @@ def data_transform(x):
 
 
 # load data
-trainset = mnist.MNIST('./dataset/mnist', train=True, transform=data_transform, download=True)
-testset = mnist.MNIST('./dataset/mnist', train=False, transform=data_transform, download=True)
+trainset = mnist.MNIST('./data/mnist', train=True, transform=data_transform, download=True)
+testset = mnist.MNIST('./data/mnist', train=False, transform=data_transform, download=True)
 train_data = DataLoader(trainset, batch_size=64, shuffle=True)
 test_data = DataLoader(testset, batch_size=128, shuffle=False)
 
@@ -122,7 +122,7 @@ for e in range(20):
                   eval_loss / len(test_data), eval_acc / len(test_data)))
 
 # save the model
-torch.save(mlp.state_dict(), 'MLP_MNIST.pkl')
+torch.save(mlp.state_dict(), 'models/MLP_MNIST.pkl')
 
 # file = './results/MLP_MNIST_model/acc.csv'
 # data = pd.DataFrame(eval_acces)

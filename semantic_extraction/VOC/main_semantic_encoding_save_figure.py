@@ -303,6 +303,7 @@ def main(ee):
             noise = torch.randn(size=out.shape) * np.sqrt(aver_noise)
             noise = noise.to(device)
 
+            out = out.to(device)
             out = out + noise
 
             # print('out_after:', out.shape)
@@ -336,7 +337,9 @@ def main(ee):
             denorm = utils.Denormalize(mean=[0.485, 0.456, 0.406],
                                        std=[0.229, 0.224, 0.225])
             img_id = 0
-        model.load_state_dict(torch.load('Segmentation_Network.pkl'))
+        # model.load_state_dict(torch.load('Segmentation_Network.pkl'))
+        # model.load_state_dict(torch.load("models/"))
+        model.load_state_dict(torch.load('pretrained_models/best_deeplabv3plus_mobilenet_voc_os16.pth')['model_state'])
         with torch.no_grad():
             counter = 0
             for i, (images, labels) in tqdm(enumerate(loader)):
@@ -347,7 +350,8 @@ def main(ee):
 
                     # forward
                     mlp_encoder = RED_CNN().to(device)
-                    mlp_encoder.load_state_dict(torch.load(('MLP_MNIST_encoder_semantic_%f.pkl' % compre_rate)))
+                    # mlp_encoder.load_state_dict(torch.load(('models/old/MLP_MNIST_encoder_semantic_%f.pkl' % compre_rate)))
+                    model.load_state_dict(torch.load('pretrained_models/best_deeplabv3plus_mobilenet_voc_os16.pth')['model_state'])
                     out = mlp_encoder(images)
                     out = out.to(device)
 
@@ -403,7 +407,8 @@ def main(ee):
         return score
 
     if ee != 100:
-        compre_rate = 0.1 * (ee + 1) + 0.1
+        # compre_rate = 0.1 * (ee + 1) + 0.1
+        compre_rate = 0.1 * ee + 0.1
 
         channel = max(np.sqrt(513 * (1 - compre_rate) / 5), 1)
         channel = int(channel)
@@ -447,7 +452,7 @@ def main(ee):
             opts.val_batch_size = 1
 
         train_dst, val_dst = get_dataset(opts)
-        print('type of vla_dst', type(val_dst))
+        # print('type of vla_dst', type(val_dst))
         train_loader = data.DataLoader(
             train_dst, batch_size=opts.batch_size, shuffle=True, num_workers=2,
             drop_last=True)  # drop_last=True to ignore single-image batches.
@@ -463,8 +468,9 @@ def main(ee):
             network.convert_to_separable_conv(model.classifier)
         utils.set_bn_momentum(model.backbone, momentum=0.01)
         model = torch.nn.DataParallel(model)
-        # model.load_state_dict(torch.load(('MLP_MNIST_encoder_semantic_%f.pkl' % compre_rate)))
-        model.load_state_dict(torch.load('Segmentation_Network.pkl'))
+        # model.load_state_dict(torch.load(('models/MLP_MNIST_encoder_semantic_%f.pkl' % compre_rate)))
+        # model.load_state_dict(torch.load('Segmentation_Network.pkl'))
+        model.load_state_dict(torch.load('pretrained_models/best_deeplabv3plus_mobilenet_voc_os16.pth')['model_state'])
         model = model.to(device)
 
         # Set up metrics
@@ -519,6 +525,7 @@ def main(ee):
                 if cur_itrs % 4 == 0:
                     loss_add = loss_add / 4
                     loss_all.append(loss_add)
+                    # print(type(loss_add), type(psnr_local))
                     print("Epoch %d, Iteration %d, Loss_combining=%f, PSNR=%f" % (
                         cur_epochs, cur_itrs, loss_add, psnr_local))
 
@@ -590,13 +597,14 @@ def main(ee):
                     data_save = pd.DataFrame(class_iou_all_np)
                     data_save.to_csv(file, index=False)
 
-                    torch.save(mlp_encoder.state_dict(), ('MLP_MNIST_encoder_semantic_%f.pkl' % compre_rate))
+                    # torch.save(mlp_encoder.state_dict(), ('MLP_MNIST_encoder_semantic_%f.pkl' % compre_rate))
 
                 scheduler_encoder.step()
 
                 if cur_itrs >= 800:
-                    torch.save(mlp_encoder.state_dict(), ('MLP_MNIST_encoder_semantic_%f.pkl' % compre_rate))
+                    torch.save(mlp_encoder.state_dict(), ('models/new/MLP_MNIST_encoder_semantic_%f.pkl' % compre_rate))
                     return
+                    # break
 
 
 if __name__ == '__main__':

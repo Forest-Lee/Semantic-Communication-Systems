@@ -25,6 +25,7 @@ import torchvision.datasets as datasets
 import time
 import warnings
 import cv2
+import tqdm
 
 warnings.filterwarnings("ignore")
 
@@ -179,16 +180,38 @@ def get_acc(output, label):
     return num_correct / total
 
 
-def merge_images(sources, targets, k=10):
-    _, _, h, w = sources.shape
-    row = int(np.sqrt(64))
-    merged = np.zeros([3, row * h, row * w * 2])
-    for idx, (s, t) in enumerate(zip(sources, targets)):
-        i = idx // row
-        j = idx % row
-        merged[:, i * h:(i + 1) * h, (j * 2) * h:(j * 2 + 1) * h] = s
-        merged[:, i * h:(i + 1) * h, (j * 2 + 1) * h:(j * 2 + 2) * h] = t
-    return merged.transpose(1, 2, 0)
+# def merge_images(sources, targets, k=10):
+#     _, _, h, w = sources.shape
+#     row = int(np.sqrt(64))
+#     merged = np.zeros([3, row * h, row * w * 2])
+#     for idx, (s, t) in enumerate(zip(sources, targets)):
+#         i = idx // row
+#         j = idx % row
+#         merged[:, i * h:(i + 1) * h, (j * 2) * h:(j * 2 + 1) * h] = s
+#         merged[:, i * h:(i + 1) * h, (j * 2 + 1) * h:(j * 2 + 2) * h] = t
+#     return merged.transpose(1, 2, 0)
+
+
+def merge_images(im_data, out_data, rows=8, cols=8):
+    # 将 im_data 和 out_data 中的图像配对并水平堆叠
+    combined_images = np.array([np.hstack((im, out)) for im, out in zip(im_data, out_data)])
+
+    # 计算合并图像的总高度和宽度
+    total_height = 16 * rows
+    total_width = 32 * cols
+
+    # 初始化一个零数组作为合并后的大图像，保持单通道灰度图像
+    merged = np.zeros((total_height, total_width), dtype=np.uint8)
+
+    # 将组合图像填充到合并图像中
+    for idx, image_pair in enumerate(combined_images):
+        i = idx // cols
+        j = idx % cols
+        target_start_y = i * 16
+        target_start_x = j * 32
+        merged[target_start_y:target_start_y+16, target_start_x:target_start_x+32] = image_pair
+
+    return merged
 
 
 def to_data(x):
@@ -196,6 +219,19 @@ def to_data(x):
     if torch.cuda.is_available():
         x = x.cpu()
     return x.data.numpy()
+
+
+def data_inv_transform(x):
+        """
+        :param x:
+        :return:
+        """
+        recover_data = x * 0.5 + 0.5
+        # recover_data = x * 0.5
+        recover_data = recover_data * 255
+        recover_data = recover_data.reshape((16, 16))
+        recover_data = recover_data.detach().cpu().numpy()
+        return recover_data
 
 
 # for rate in range(50):
@@ -330,6 +366,7 @@ for lambda_var in range(1):
                 aver_noise = aver / 10 ** (snr / 10)
                 noise = torch.randn(size=out.shape) * np.sqrt(aver_noise)
                 noise = noise.to(device)
+                out = out.to(device)
 
                 out = out + noise
                 out = self.tconv4(out)
@@ -386,9 +423,9 @@ for lambda_var in range(1):
         # test_set = datasets.SVHN('./data', transform=transform, download=True)
         # test_data = torch.utils.data.DataLoader(test_set, batch_size=64, shuffle=False)
 
-        train_set = datasets.USPS('./data', transform=transform_mnist, download=True)
+        train_set = datasets.USPS('./data/usps', transform=transform_mnist, download=True)
         train_data = torch.utils.data.DataLoader(train_set, batch_size=64, shuffle=True)
-        test_set = datasets.USPS('./data', transform=transform_mnist, download=True)
+        test_set = datasets.USPS('./data/usps', transform=transform_mnist, download=True)
         test_data = torch.utils.data.DataLoader(test_set, batch_size=64, shuffle=False)
 
         losses = []
@@ -404,7 +441,10 @@ for lambda_var in range(1):
         epoch_len = 500
         out = None
         # print('ini time:', time.process_time())
-        for e in range(epoch_len):
+        print(f"Start training {epoch_len} epochs")
+        train_epochs = tqdm.tqdm(range(epoch_len))
+        for e in train_epochs:
+            # if e > 50: break  # for debugging
             train_loss = 0
             train_acc = 0
             psnr_aver = 0
@@ -449,6 +489,39 @@ for lambda_var in range(1):
                 counter += 1
                 if counter >= 32:
                     break
+                # save the images
+                if (e+1) % 50 == 0 and counter == 1:
+                    # im_data = to_data(im)
+                    # out_data = to_data(out)
+                    # merged = merge_images(im_data, out_data)
+                    # im_data = imageio.core.image_as_uint(im_data)
+                    # out_data = imageio.core.image_as_uint(out_data)
+                    # merged = imageio.core.image_as_uint(merged)
+
+                    im_data = [data_inv_transform(im[i]) for i in range(im.size(0))]
+                    out_data = [data_inv_transform(out[i]) for i in range(out.size(0))]
+                    merged = merge_images(im_data, out_data)
+
+                    path = os.path.join('images/usps/sample/sample-epoch-%d-lambda-%.2f-compre-%.2f.png' % (
+                        e+1, lambda1, compression_rate))
+                    # imageio.imwrite(path, merged)
+                    pil_img = Image.fromarray(np.uint8(merged))
+                    pil_img.save(path)
+                    print('saved %s' % path)
+
+                    path = os.path.join('images/usps/im/im-epoch-%d-lambda-%.2f-compre-%.2f.png' % (
+                        e+1, lambda1, compression_rate))
+                    # imageio.imwrite(path, im_data[0].transpose(1, 2, 0))
+                    pil_img = Image.fromarray(np.uint8(im_data[0]))
+                    pil_img.save(path)
+                    print('saved %s' % path)
+                    
+                    path = os.path.join('images/usps/out/out-epoch-%d-lambda-%.2f-compre-%.2f.png' % (
+                        e+1, lambda1, compression_rate))
+                    # imageio.imwrite(path, out_data[0].transpose(1, 2, 0))
+                    pil_img = Image.fromarray(np.uint8(out_data[0]))
+                    pil_img.save(path)
+                    print('saved %s' % path)
 
             losses.append(train_loss / counter)
             acces.append(train_acc / counter)
@@ -498,9 +571,10 @@ for lambda_var in range(1):
 
             eval_losses.append(eval_loss / counter)
             eval_acces.append(eval_acc / counter)
-            print('epoch: {}, Train Loss: {:.6f}, Train Acc: {:.6f}, Eval Loss: {:.6f}, Eval Acc: {:.6f}, PSNR: {:.6f}'
-                  .format(e, train_loss / counter, train_acc / counter,
-                          eval_loss / counter, eval_acc / counter, psnr_aver / counter))
+            if (e+1) % 10 == 0:
+                print('epoch: {}, Train Loss: {:.6f}, Train Acc: {:.6f}, Eval Loss: {:.6f}, Eval Acc: {:.6f}, PSNR: {:.6f}'
+                    .format(e+1, train_loss / counter, train_acc / counter,
+                            eval_loss / counter, eval_acc / counter, psnr_aver / counter))
             # print('*' * 30)
 
             # if e % 10 == 0:
@@ -509,27 +583,39 @@ for lambda_var in range(1):
             #     torch.save(mlp_encoder.state_dict(),
             #                'mlp_encoder_cifar-lambda-%.2f-compre-%.2f.pkl' % (lambda1, compression_rate))
 
-        # torch.save(mlp_encoder.state_dict(), ('MLP_MNIST_encoder_combining_%f.pkl' % compression_rate))
+        torch.save(mlp_encoder.state_dict(), ('models/usps/MLP_USPS_encoder_combining_%f.pkl' % compression_rate))
 
-        file = ('./USPS/MLP_sem_USPS/loss_semantic_combining_%.2f_lambda_%.2f.csv' % (
+        file = ('./results/usps/MLP_sem_USPS/loss_semantic_combining_%.2f_lambda_%.2f.csv' % (
             compression_rate, lambda1))
         data = pd.DataFrame(eval_losses)
         data.to_csv(file, index=False)
 
-        file = ('./USPS/MLP_sem_USPS/acc_semantic_combining_%.2f_lambda_%.2f.csv' % (
+        file = ('./results/usps/MLP_sem_USPS/acc_semantic_combining_%.2f_lambda_%.2f.csv' % (
             compression_rate, lambda1))
         data = pd.DataFrame(eval_acces)
         data.to_csv(file, index=False)
 
-        # eval_psnr = np.array(psnr_all)
-        # file = ('./SVHN/MLP_sem_SVHN/psnr_semantic_combining_%.2f_lambda_%.2f.csv' % (
-        #     compression_rate, lambda1))
-        # data = pd.DataFrame(eval_psnr)
-        # data.to_csv(file, index=False)
+        eval_psnr = np.array(psnr_all)
+        file = ('./results/usps/MLP_sem_USPS/psnr_semantic_combining_%.2f_lambda_%.2f.csv' % (
+            compression_rate, lambda1))
+        data = pd.DataFrame(eval_psnr)
+        data.to_csv(file, index=False)
 
         # for ii in range(len(out)):
+        #     if ii > 15: break
+        #     # print(len(out))  # 64
         #     # image_recover = data_inv_transform(out[ii])
-        #     pil_img = Image.fromarray(np.uint8(out))
+        #     out_data = to_data(out)
+        #     out_data = imageio.core.image_as_uint(out_data)
+        #     pil_img = Image.fromarray(out_data[ii].transpose(1, 2, 0))
+        #     # pil_img = Image.fromarray(image_recover)
         #     pil_img.save(
-        #         "/SVHN/image_recover_combing/mnist_train_%d_%f_lambda_%f.jpg" % (ii, compression_rate, lambda1))
+        #         "image_recover/usps/usps_train_%d_%f_lambda_%f.jpg" % (ii, compression_rate, lambda1))
+        for ii in range(len(out)):
+            if ii > 15: break
+            # print(len(out))  # 64
+            image_recover = data_inv_transform(out[ii])
+            pil_img = Image.fromarray(np.uint8(image_recover))
+            pil_img.save("image_recover/usps/usps_train_%d_%f.jpg" % (ii, compression_rate))
+
 

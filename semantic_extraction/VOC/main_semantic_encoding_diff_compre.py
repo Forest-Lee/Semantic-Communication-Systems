@@ -287,6 +287,7 @@ def main(ee):
             aver_noise = aver / 10 ** (snr / 10)
             noise = torch.randn(size=out.shape) * np.sqrt(aver_noise)
             noise = noise.to(device)
+            out = out.to(device)
 
             out = out + noise
 
@@ -387,8 +388,10 @@ def main(ee):
         return score
 
 
+    # pretrain phase
     if ee != 100:
-        compre_rate = 0.1 * (ee + 1) + 0.1
+        # compre_rate = 0.1 * (ee + 1) + 0.1
+        compre_rate = 0.1 * ee + 0.1
 
         channel = max(np.sqrt(513 * (1 - compre_rate) / 5), 1)
         channel = int(channel)
@@ -432,7 +435,7 @@ def main(ee):
             opts.val_batch_size = 1
 
         train_dst, val_dst = get_dataset(opts)
-        print('type of vla_dst', type(val_dst))
+        # print('type of vla_dst', type(val_dst))  # <class 'datasets.voc.VOCSegmentation'>
         train_loader = data.DataLoader(
             train_dst, batch_size=opts.batch_size, shuffle=True, num_workers=2,
             drop_last=True)  # drop_last=True to ignore single-image batches.
@@ -448,7 +451,8 @@ def main(ee):
             network.convert_to_separable_conv(model.classifier)
         utils.set_bn_momentum(model.backbone, momentum=0.01)
         model = torch.nn.DataParallel(model)
-        model.load_state_dict(torch.load('Segmentation_Network.pkl'))
+        # model.load_state_dict(torch.load('Segmentation_Network.pkl'))
+        # model.load_state_dict(torch.load('pretrained_models/best_deeplabv3plus_mobilenet_voc_os16.pth')['model_state'])
         model = model.to(device)
 
         # Set up metrics
@@ -471,6 +475,7 @@ def main(ee):
         interval_loss = 0
         torch.cuda.empty_cache()
 
+        # while cur_epochs < opts.pretrain_epoch:
         while True:  # cur_itrs < opts.total_itrs:
             # =====  Train  =====
             cur_epochs += 1
@@ -484,6 +489,7 @@ def main(ee):
                 optimizer_encoder.zero_grad()
 
                 out = mlp_encoder(images)
+                # print(images.size(), out.size())  # both [8, 3, 513, 513]
 
                 # out_np = out.detach().cpu().numpy()
                 # print(np.shape(out_np))
@@ -502,12 +508,16 @@ def main(ee):
 
                 scheduler_encoder.step()
 
+                print(f"pretrain epoch {cur_epochs}, iteration {cur_itrs} done")
+
                 if cur_itrs >= opts.pretrain_epoch:
-                    # torch.save(mlp_encoder.state_dict(), ('MLP_MNIST_encoder_semantic_%f.pkl' % compre_rate))
+                    torch.save(mlp_encoder.state_dict(), ('models/new/MLP_MNIST_encoder_semantic_%f.pkl' % compre_rate))
                     return
 
+    # train phase
     if ee != 100:
-        compre_rate = 0.1 * (ee + 1) + 0.1
+        # compre_rate = 0.1 * (ee + 1) + 0.1
+        compre_rate = 0.1 * ee + 0.1
 
         channel = max(np.sqrt(513 * (1 - compre_rate) / 5), 1)
         channel = int(channel)
@@ -551,7 +561,7 @@ def main(ee):
             opts.val_batch_size = 1
 
         train_dst, val_dst = get_dataset(opts)
-        print('type of vla_dst', type(val_dst))
+        # print('type of vla_dst', type(val_dst))
         train_loader = data.DataLoader(
             train_dst, batch_size=opts.batch_size, shuffle=True, num_workers=2,
             drop_last=True)  # drop_last=True to ignore single-image batches.
@@ -567,7 +577,8 @@ def main(ee):
             network.convert_to_separable_conv(model.classifier)
         utils.set_bn_momentum(model.backbone, momentum=0.01)
         model = torch.nn.DataParallel(model)
-        model.load_state_dict(torch.load('Segmentation_Network.pkl'))
+        # model.load_state_dict(torch.load('Segmentation_Network.pkl'))
+        model.load_state_dict(torch.load('pretrained_models/best_deeplabv3plus_mobilenet_voc_os16.pth')['model_state'])
         model = model.to(device)
 
         # Set up metrics
@@ -611,6 +622,8 @@ def main(ee):
                 loss_encoder, psnr_local = criterion_encoder(out, images, out_model, labels,
                                                              lambda0=1 - compre_rate)  # 尽可能无损
                 psnr_all.append(psnr_local)
+                print("loss_encoder: ", loss_encoder)
+                print("psnr_local", psnr_local)
                 # backward
                 loss_encoder.backward()
                 optimizer_encoder.step()
@@ -697,8 +710,9 @@ def main(ee):
                 scheduler_encoder.step()
 
                 if cur_itrs >= 800:
-                    torch.save(mlp_encoder.state_dict(), ('MLP_MNIST_encoder_semantic_%f.pkl' % compre_rate))
-                    return
+                    torch.save(mlp_encoder.state_dict(), ('models/new/MLP_MNIST_encoder_semantic_%f.pkl' % compre_rate))
+                    # return
+                    break
 
 
 if __name__ == '__main__':

@@ -8,12 +8,23 @@
 """
 import argparse
 import os
+import sys
 from solver_usps_mnist import Solver
 from torch.backends import cudnn
 from data_loader_usps import get_loader
 import torch
 from torch import nn
 import numpy as np
+
+
+class DualWriter:
+    def __init__(self, filename):
+        self.file = open(filename, 'w', encoding='utf-8')
+        self.stdout = sys.stdout
+
+    def write(self, message):
+        self.stdout.write(message)
+        self.file.write(message)
 
 
 def str2bool(v):
@@ -62,12 +73,18 @@ if __name__ == '__main__':
     parser.add_argument('--mode', type=str, default='train')
     parser.add_argument('--model_path', type=str, default='./models')
     parser.add_argument('--sample_path', type=str, default='./samples')
-    parser.add_argument('--mnist_path', type=str, default='./mnist')
-    parser.add_argument('--svhn_path', type=str, default='./svhn')
-    parser.add_argument('--usps_path', type=str, default='./mnist')
-    parser.add_argument('--log_step', type=int, default=10)
+    parser.add_argument('--mnist_path', type=str, default='./data/mnist')
+    parser.add_argument('--svhn_path', type=str, default='./data/svhn')
+    parser.add_argument('--usps_path', type=str, default='./data/usps')
+    parser.add_argument('--log_step', type=int, default=100)
     parser.add_argument('--sample_step', type=int, default=500)
 
     config = parser.parse_args()
-    print(config)
-    main(config)
+    # print(config)
+    # main(config)
+    sys.stdout = DualWriter(f'output/output-usps_mnist.txt')
+    try:
+        main(config)
+    finally:
+        sys.stdout.file.close()
+        sys.stdout = sys.stdout.stdout

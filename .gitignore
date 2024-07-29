@@ -1,0 +1,12 @@
+data/
+semantic_extraction/VOC/datasets/
+models/
+pretrained_models/
+DeepLabV3Plus-Pytorch/
+results/
+semantic_extraction/VOC/results_data/
+images/
+image_recover/
+output/
+samples/
+__pycache__/

@@ -8,12 +8,23 @@
 """
 import argparse
 import os
+import sys
 from solver_stl_cifar import Solver
 from torch.backends import cudnn
 from data_loader_cifar import get_loader
 from torchvision import transforms
 from torchvision.datasets import cifar
 from torch.utils.data import DataLoader
+
+
+class DualWriter:
+    def __init__(self, filename):
+        self.file = open(filename, 'w', encoding='utf-8')
+        self.stdout = sys.stdout
+
+    def write(self, message):
+        self.stdout.write(message)
+        self.file.write(message)
 
 
 def str2bool(v):
@@ -62,12 +73,18 @@ if __name__ == '__main__':
     parser.add_argument('--mode', type=str, default='train')
     parser.add_argument('--model_path', type=str, default='./models')
     parser.add_argument('--sample_path', type=str, default='./samples')
-    parser.add_argument('--cifar_path', type=str, default='./cifar')
-    parser.add_argument('--stl_path', type=str, default='./stl')
-    parser.add_argument('--log_step', type=int, default=10)
+    parser.add_argument('--cifar_path', type=str, default='./data/cifar')
+    parser.add_argument('--stl_path', type=str, default='./data/stl')
+    parser.add_argument('--log_step', type=int, default=100)
     parser.add_argument('--sample_step', type=int, default=500)
 
     config = parser.parse_args()
-    print(config)
-    main(config)
+    # print(config)
+    # main(config)
+    sys.stdout = DualWriter(f'output/output-stl_cifar.txt')
+    try:
+        main(config)
+    finally:
+        sys.stdout.file.close()
+        sys.stdout = sys.stdout.stdout
 

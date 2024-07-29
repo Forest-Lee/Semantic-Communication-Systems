@@ -21,6 +21,8 @@ from model_stl_cifar import D1, D2
 import scipy.misc
 import imageio
 import pandas as pd
+import copy
+import tqdm
 
 
 def data_tf(x):
@@ -226,10 +228,11 @@ class Solver(object):
         print("Device: %s" % device)
 
         acc_all_all = []
-        for iii in range(9):
+        for iii in range(10):
             compression_rate = (iii + 1) * 0.1
             channel = max(np.sqrt(32 * (1 - compression_rate) / 2), 1)
             channel = int(channel)
+            print('-' * 30)
             print('compression rate:', compression_rate)
             flag = 0
 
@@ -285,6 +288,7 @@ class Solver(object):
                     aver_noise = aver / 10 ** (snr / 10)
                     noise = torch.randn(size=out.shape) * np.sqrt(aver_noise)
                     noise = noise.to(device)
+                    out = out.to(device)
 
                     out = out + noise
 
@@ -301,11 +305,11 @@ class Solver(object):
 
             # coder
             mlp_encoder = RED_CNN()
-            mlp_encoder.load_state_dict(torch.load('mlp_encoder_cifar-lambda-0.80-compre-%.2f.pkl' % compression_rate))
+            mlp_encoder.load_state_dict(torch.load('models/cifar/mlp_cifar_encoder-lambda-%.2f-compre-%.2f.pkl' % (1-compression_rate, compression_rate)))
             mlp_encoder = mlp_encoder.to(device)
             # pragmatic function
             classifier = googlenet(3, 10)
-            classifier.load_state_dict(torch.load('google_net.pkl'))
+            classifier.load_state_dict(torch.load('models/google_net.pkl'))
             classifier.to(device)
 
             stl_iter = iter(self.stl_loader)
@@ -322,7 +326,7 @@ class Solver(object):
             criterion = nn.CrossEntropyLoss()
             # criterion = nn.BCELoss()
 
-            for step in range(self.train_iters + 1):
+            for step in tqdm.tqdm(range(self.train_iters)):
                 if flag == 1:
                     flag = 0
                     break
@@ -366,12 +370,46 @@ class Solver(object):
                           % (step + 1, self.train_iters, acc))
 
                 if (step + 1) % (self.log_step * 10) == 0:
+                    # save images
+                    fake_stl = fixed_cifar
+                    fake_cifar = fixed_stl
+                    out_encoder = mlp_encoder(fake_cifar)
+                    cifar, fake_cifar = self.to_data(fixed_cifar), self.to_data(fake_cifar)
+                    stl, fake_stl = self.to_data(fixed_stl), self.to_data(fake_stl)
+                    out_encoder = self.to_data(out_encoder)
+                    # cifar to stl
+                    merged = self.merge_images(cifar, fake_stl)
+                    merged = imageio.core.image_as_uint(merged)
+                    path = os.path.join(self.sample_path, 'stl/woda/sample-%d-m-s.png' % (step + 1))
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
+                    # stl to cifar
+                    merged = self.merge_images(stl, fake_cifar)
+                    merged = imageio.core.image_as_uint(merged)
+                    path = os.path.join(self.sample_path, 'stl/woda/sample-%d-s-m.png' % (step + 1))
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
+                    # all
+                    merged = self.merge_images_encoder(stl, fake_cifar, out_encoder)
+                    merged = imageio.core.image_as_uint(merged)
+                    path = os.path.join(self.sample_path, 'stl/woda/sample-%d-s-m-encoder.png' % (step + 1))
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
+
                     # acc_all_np.append(np.array(self.train_acc))
                     # acc_all_np = np.array(acc_all_np)
                     acc_all_all.append(self.train_acc)
-                    if compression_rate > 0.8:
+                    # if compression_rate > 0.9:
+                    #     acc_all_all = np.array(acc_all_all)
+                    #     file = './results/stl/acc.csv'
+                    #     data = pd.DataFrame(acc_all_all)
+                    #     data.to_csv(file, index=False)
+                    # break
+                
+                if (step + 1) % 15000 == 0:
+                    if compression_rate > 0.9:
                         acc_all_all = np.array(acc_all_all)
-                        file = './results/acc.csv'
+                        file = './results/stl/acc.csv'
                         data = pd.DataFrame(acc_all_all)
                         data.to_csv(file, index=False)
                     break

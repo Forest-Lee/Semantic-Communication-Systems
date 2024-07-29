@@ -22,6 +22,8 @@ import scipy.misc
 import imageio
 import torch.nn.functional as F
 import pandas as pd
+import copy
+import tqdm
 
 
 class MLP_MNIST(nn.Module):
@@ -137,9 +139,10 @@ class Solver(object):
         flag = 0
 
         acc_all_all = []
-        for iii in range(9):
+        for iii in range(10):
             acc_all_np = []
             compression_rate = (iii + 1) * 0.1
+            print('-' * 30)
             print('compression rate:', compression_rate)
 
             class MLP(nn.Module):
@@ -184,9 +187,9 @@ class Solver(object):
             mlp_encoder = mlp_encoder.to(device)
             mlp_mnist = mlp_mnist.to(device)
 
-            mlp_encoder.load_state_dict(torch.load('MLP_MNIST'
+            mlp_encoder.load_state_dict(torch.load('models/mnist/MLP_MNIST'
                                                    '_encoder_combining_%.6f.pkl' % compression_rate))
-            mlp_mnist.load_state_dict(torch.load('MLP_MNIST.pkl'))
+            mlp_mnist.load_state_dict(torch.load('models/MLP_MNIST.pkl'))
 
             svhn_iter = iter(self.svhn_loader)
             mnist_iter = iter(self.mnist_loader)
@@ -203,7 +206,7 @@ class Solver(object):
             # criterion = nn.BCELoss()
             counter = 0
 
-            for step in range(self.train_iters + 1):
+            for step in tqdm.tqdm(range(self.train_iters)):
                 # reset data_iter for each epoch
                 if (step + 1) % iter_per_epoch == 0:
                     mnist_iter = iter(self.mnist_loader)
@@ -331,53 +334,56 @@ class Solver(object):
                 if (step + 1) % self.sample_step == 0:
                     # save images
 
-                    # fake_svhn = self.g12(fixed_mnist)
-                    # fake_mnist = self.g21(fixed_svhn)
-                    #
-                    # fake_mnist_reshape = fake_mnist.view(64, -1)
-                    # fake_mnist_reshape = fake_mnist_reshape.to(device)
-                    # out_encoder = mlp_encoder(fake_mnist_reshape)
-                    # out_encoder_reshape = torch.reshape(out_encoder, (64, 1, 28, 28))
-                    #
-                    # mnist, fake_mnist = self.to_data(fixed_mnist), self.to_data(fake_mnist)
-                    # svhn, fake_svhn = self.to_data(fixed_svhn), self.to_data(fake_svhn)
-                    #
-                    # out_encoder_reshape_data = self.to_data(out_encoder_reshape)
-                    #
-                    # # mnist to svhn
-                    # merged = self.merge_images(mnist, fake_svhn)
-                    # path = os.path.join(self.sample_path, 'sample-%d-m-s.png' % (step + 1))
-                    # # scipy.misc.imsave(path, merged)
-                    # imageio.imwrite(path, merged)
-                    # print('saved %s' % path)
-                    #
-                    # # svhn to mnist
-                    # merged = self.merge_images(svhn, fake_mnist)
-                    # path = os.path.join(self.sample_path, 'sample-%d-s-m.png' % (step + 1))
-                    # # scipy.misc.imsave(path, merged)
-                    # imageio.imwrite(path, merged)
-                    # print('saved %s' % path)
-                    #
-                    # merged = self.merge_images_encoder(svhn, fake_mnist, out_encoder_reshape_data)
-                    # path = os.path.join(self.sample_path, 'sample-%d-s-m-encoder.png' % (step + 1))
-                    # # scipy.misc.imsave(path, merged)
-                    # imageio.imwrite(path, merged)
-                    # print('saved %s' % path)
+                    fake_svhn = self.g12(fixed_mnist)
+                    fake_mnist = self.g21(fixed_svhn)
+                    
+                    fake_mnist_reshape = fake_mnist.view(64, -1)
+                    fake_mnist_reshape = fake_mnist_reshape.to(device)
+                    out_encoder = mlp_encoder(fake_mnist_reshape)
+                    out_encoder_reshape = torch.reshape(out_encoder, (64, 1, 28, 28))
+                    
+                    mnist, fake_mnist = self.to_data(fixed_mnist), self.to_data(fake_mnist)
+                    svhn, fake_svhn = self.to_data(fixed_svhn), self.to_data(fake_svhn)
+                    
+                    out_encoder_reshape_data = self.to_data(out_encoder_reshape)
+                    
+                    # mnist to svhn
+                    merged = self.merge_images(mnist, fake_svhn)
+                    merged = imageio.core.image_as_uint(merged)
+                    path = os.path.join(self.sample_path, 'svhn/wda/sample-%d-m-s.png' % (step + 1))
+                    # scipy.misc.imsave(path, merged)
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
+                    
+                    # svhn to mnist
+                    merged = self.merge_images(svhn, fake_mnist)
+                    merged = imageio.core.image_as_uint(merged)
+                    path = os.path.join(self.sample_path, 'svhn/wda/sample-%d-s-m.png' % (step + 1))
+                    # scipy.misc.imsave(path, merged)
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
+                    
+                    merged = self.merge_images_encoder(svhn, fake_mnist, out_encoder_reshape_data)
+                    merged = imageio.core.image_as_uint(merged)
+                    path = os.path.join(self.sample_path, 'svhn/wda/sample-%d-s-m-encoder.png' % (step + 1))
+                    # scipy.misc.imsave(path, merged)
+                    imageio.imwrite(path, merged)
+                    print('saved %s' % path)
 
                     acc_all_np = np.array(self.train_acc)
-                    file = ('./results/acc_svhn_mnist_%.2f.csv' % compression_rate)
+                    file = ('./results/svhn/acc_svhn_mnist_%.2f.csv' % compression_rate)
                     data = pd.DataFrame(acc_all_np)
                     data.to_csv(file, index=False)
 
                 if (step + 1) % 15000 == 0:
                     # save models
                     # save the model parameters for each epoch
-                    # g12_path = os.path.join(self.model_path, 'g12-%d.pkl' % (step + 1))
-                    # g21_path = os.path.join(self.model_path, 'g21-%d.pkl' % (step + 1))
-                    # d1_path = os.path.join(self.model_path, 'd1-%d.pkl' % (step + 1))
-                    # d2_path = os.path.join(self.model_path, 'd2-%d.pkl' % (step + 1))
-                    # torch.save(self.g12.state_dict(), g12_path)
-                    # torch.save(self.g21.state_dict(), g21_path)
-                    # torch.save(self.d1.state_dict(), d1_path)
-                    # torch.save(self.d2.state_dict(), d2_path)
+                    g12_path = os.path.join(self.model_path, 'svhn/g12-%d.pkl' % (step + 1))
+                    g21_path = os.path.join(self.model_path, 'svhn/g21-%d.pkl' % (step + 1))
+                    d1_path = os.path.join(self.model_path, 'svhn/d1-%d.pkl' % (step + 1))
+                    d2_path = os.path.join(self.model_path, 'svhn/d2-%d.pkl' % (step + 1))
+                    torch.save(self.g12.state_dict(), g12_path)
+                    torch.save(self.g21.state_dict(), g21_path)
+                    torch.save(self.d1.state_dict(), d1_path)
+                    torch.save(self.d2.state_dict(), d2_path)
                     break

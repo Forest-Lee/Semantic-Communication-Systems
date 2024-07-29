@@ -18,13 +18,56 @@ from torch import nn
 import scipy
 from torch.autograd import Variable
 from PIL import Image
+import argparse
+import tqdm
+import os
+import imageio
+
+def get_argparser():
+    parser = argparse.ArgumentParser()
+
+    # Dataset Options
+    # parser.add_argument("--alpha", type=float, default=1,
+    #                     help="parameter in loss function")
+    # parser.add_argument("--pretrain_epoch", type=int, default=10,
+    #                     help='epochs of the pretraining stage')
+    # parser.add_argument("--random_seed", type=int, default=50,
+    #                     help='seed of random sequence')
+    parser.add_argument("--train_epoch", type=int, default=500,
+                        help='epochs of the training stage')
+
+    return parser
 
 raw_dim = 28 * 28  # shape of the raw image
 
+def merge_images(im_data, out_data, rows=8, cols=8):
+    # 将 im_data 和 out_data 中的图像配对并水平堆叠
+    combined_images = np.array([np.hstack((im, out)) for im, out in zip(im_data, out_data)])
+
+    # 计算合并图像的总高度和宽度
+    total_height = 28 * rows
+    total_width = 56 * cols  # 56 是因为每对图像宽度为 56
+
+    # 初始化一个零数组作为合并后的大图像，保持单通道灰度图像
+    merged = np.zeros((total_height, total_width), dtype=np.uint8)
+
+    # 将组合图像填充到合并图像中
+    for idx, image_pair in enumerate(combined_images):
+        i = idx // cols
+        j = idx % cols
+        target_start_y = i * 28
+        target_start_x = j * 56
+        merged[target_start_y:target_start_y+28, target_start_x:target_start_x+56] = image_pair
+
+    return merged
+
+opts = get_argparser().parse_args()
+
 # for rate in range(50):
-for rate in range(1):
+for rate in range(10):
     # compression_rate = (rate + 1) * 0.02
-    compression_rate = min((rate + 10) * 0.1, 1)
+    # compression_rate = min((rate + 10) * 0.1, 1)  # cr always be 1.0
+    compression_rate = min((rate + 1) * 0.1, 1)
     channel = int(compression_rate * raw_dim)
 
     lambda1 = 1 - compression_rate
@@ -98,7 +141,7 @@ for rate in range(1):
     mlp_mnist = MLP_MNIST()
 
     # load the MNIST classifier
-    mlp_mnist.load_state_dict(torch.load('MLP_MNIST.pkl'))
+    mlp_mnist.load_state_dict(torch.load('models/MLP_MNIST.pkl'))
 
     # mlp_mnist_ini = copy.deepcopy(mlp_mnist)
 
@@ -125,10 +168,12 @@ for rate in range(1):
 
 
     # load data
-    trainset = mnist.MNIST('./dataset/mnist', train=True, transform=data_transform, download=True)
-    testset = mnist.MNIST('./dataset/mnist', train=False, transform=data_transform, download=True)
+    trainset = mnist.MNIST('./data/mnist', train=True, transform=data_transform, download=True)
+    testset = mnist.MNIST('./data/mnist', train=False, transform=data_transform, download=True)
     train_data = DataLoader(trainset, batch_size=64, shuffle=True)
     test_data = DataLoader(testset, batch_size=128, shuffle=False)
+    # print(len(train_data), len(test_data))  # 938 79
+
 
     # loss function
     def criterion(x_in, y_in, raw_in):
@@ -155,10 +200,13 @@ for rate in range(1):
     print('Compression Rate:', compression_rate)
     epoch_len = 500
     out = None
-    for e in range(epoch_len):
+    print(f"Start training {opts.train_epoch} epochs")
+    train_epochs = tqdm.tqdm(range(opts.train_epoch))
+    for e in train_epochs:
         train_loss = 0
         train_acc = 0
         psnr_aver = 0
+        counter = 0
         mlp_encoder.train()
         for im, label in train_data:
             im = Variable(im)
@@ -187,6 +235,39 @@ for rate in range(1):
             acc = num_correct / im.shape[0]
             train_acc += acc
 
+            counter += 1
+
+            # save the images
+            if (e+1) % 50 == 0 and counter == 1:
+                # print(im.shape)  # torch.Size([64, 784])
+
+                im_data = [data_inv_transform(im[i]) for i in range(im.size(0))]
+                out_data = [data_inv_transform(out[i]) for i in range(out.size(0))]
+                merged = merge_images(im_data, out_data)
+
+                path = os.path.join('images/mnist/sample/sample-epoch-%d-lambda-%.2f-compre-%.2f.png' % (
+                    e+1, lambda1, compression_rate))
+                pil_img = Image.fromarray(np.uint8(merged))
+                pil_img.save(path)
+                print('saved %s' % path)
+
+                path = os.path.join('images/mnist/im/im-epoch-%d-lambda-%.2f-compre-%.2f.png' % (
+                    e+1, lambda1, compression_rate))
+                pil_img = Image.fromarray(np.uint8(im_data[0]))
+                pil_img.save(path)
+                # imageio.imwrite(path, im_data[0])  # ValueError: Image must be 2D (grayscale, RGB, or RGBA).
+                print('saved %s' % path)
+
+                    
+                path = os.path.join('images/mnist/out/out-epoch-%d-lambda-%.2f-compre-%.2f.png' % (
+                    e+1, lambda1, compression_rate))
+                pil_img = Image.fromarray(np.uint8(out_data[0]))
+                pil_img.save(path)
+                # imageio.imwrite(path, out_data[0])
+                print('saved %s' % path)
+
+        # print(counter)  # 60000 / 64 = 938
+
         # mlp_mnist_diff = copy.deepcopy(mlp_mnist.state_dict())
         # counter = 0
         # print('counter', counter)
@@ -202,6 +283,7 @@ for rate in range(1):
 
         eval_loss = 0
         eval_acc = 0
+        counter = 0
         mlp_encoder.eval()
         for im, label in test_data:
             # image_recover = data_inv_transform(im[0])
@@ -227,14 +309,19 @@ for rate in range(1):
             acc = num_correct / im.shape[0]
             eval_acc += acc
 
+            counter += 1
+        # print(counter)  # 10000 / 128 = 79
+
         eval_losses.append(eval_loss / len(test_data))
         eval_acces.append(eval_acc / len(test_data))
-        print('epoch: {}, Train Loss: {:.6f}, Train Acc: {:.6f}, Eval Loss: {:.6f}, Eval Acc: {:.6f}, PSNR: {:.6f}'
-              .format(e, train_loss / len(train_data), train_acc / len(train_data),
-                      eval_loss / len(test_data), eval_acc / len(test_data), psnr))
+
+        if (e+1) % 10 == 0:
+            print('epoch: {}, Train Loss: {:.6f}, Train Acc: {:.6f}, Eval Loss: {:.6f}, Eval Acc: {:.6f}, PSNR: {:.6f}'
+                .format(e+1, train_loss / len(train_data), train_acc / len(train_data),
+                        eval_loss / len(test_data), eval_acc / len(test_data), psnr))
 
     # save model and results
-    torch.save(mlp_encoder.state_dict(), ('MLP_MNIST_encoder_combining_%f.pkl' % compression_rate))
+    torch.save(mlp_encoder.state_dict(), ('models/mnist/MLP_MNIST_encoder_combining_%f.pkl' % compression_rate))
 
     file = ('./results/MLP_sem_MNIST/loss_semantic_combining_%f.csv' % compression_rate)
     data = pd.DataFrame(eval_losses)
@@ -251,9 +338,10 @@ for rate in range(1):
 
     # save the recovered images
     for ii in range(len(out)):
+        # print(len(out))  # 16
         image_recover = data_inv_transform(out[ii])
         pil_img = Image.fromarray(np.uint8(image_recover))
-        pil_img.save("image_recover_combing/mnist_train_%d_%f.jpg" % (ii, compression_rate))
+        pil_img.save("image_recover/mnist/mnist_train_%d_%f.jpg" % (ii, compression_rate))
 
 
 
